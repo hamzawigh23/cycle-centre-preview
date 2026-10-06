@@ -1,0 +1,49 @@
+name: EBike product visual
+on:
+  push:
+    branches: [ebike-gibraltar-concept]
+    paths: [.github/workflows/ebike-bike-art.yml]
+permissions:
+  contents: read
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Collect product reference
+        run: |
+          mkdir -p product-reference
+          python3 - <<'PY'
+          import urllib.request,urllib.parse,re,pathlib,json,concurrent.futures
+          base='https://www.r-m.de/de-at/bikes/delite/delite-gt-touring/'
+          def get(u): return urllib.request.urlopen(urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0'}),timeout=25).read()
+          urls=['https://www.fietsenwildiers.be/wp-content/uploads/2023/11/wconn-593400.jpg']
+          try:
+              s=get(base).decode('utf8','replace')
+              pathlib.Path('product-reference/manufacturer.html').write_text(s)
+              refs=re.findall(r'''["']([^"'<>]+\.(?:jpg|png|webp)(?:\?[^"'<>]*)?)["']''',s)
+              refs=sorted(set(urllib.parse.urljoin(base,u) for u in refs))
+              pathlib.Path('product-reference/urls.json').write_text(json.dumps(refs,indent=2))
+              candidates=[u for u in refs if any(t in u.lower() for t in ['delite','f008','bikeimage','bike-image'])]
+              urls+=candidates[:18]
+              print('FOUND',len(refs),'images; candidates',len(candidates))
+          except Exception as e: print('MANUFACTURER',str(e))
+          out=[]
+          def load(pair):
+              i,u=pair
+              try:
+                  d=get(u)
+                  if len(d)<9000000:
+                      name='product-'+str(i)+'.'+urllib.parse.urlparse(u).path.rsplit('.',1)[-1]
+                      pathlib.Path('product-reference',name).write_bytes(d)
+                      out.append({'file':name,'url':u})
+                      print('IMAGE',name,len(d),u)
+              except Exception as e: print('ERROR',str(e),u)
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool: list(pool.map(load,enumerate(urls)))
+          pathlib.Path('product-reference/sources.json').write_text(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ebike-product-reference
+          path: product-reference
+          retention-days: 3
